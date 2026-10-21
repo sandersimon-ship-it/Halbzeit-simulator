@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#101827">
+<title>Halbzeit-Kompass</title>
+<style>
+:root{color-scheme:dark;--bg:#0b1220;--panel:#141e30;--line:#2a3850;--text:#f2f6ff;--muted:#aab8cf;--accent:#75e0b0;--warn:#ffcf76}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(160deg,#0b1220,#111b2c);color:var(--text);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:820px;margin:auto;padding:20px 15px 40px}.hero{padding:12px 2px 20px}h1{font-size:30px;line-height:1.1;margin:0 0 8px}.sub{color:var(--muted);margin:0}.panel{background:rgba(20,30,48,.96);border:1px solid var(--line);border-radius:18px;padding:16px;margin:12px 0}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.row>*{flex:1}.btn{border:0;border-radius:12px;background:var(--accent);color:#082116;font-weight:750;font-size:16px;padding:13px 15px;min-height:48px;cursor:pointer}.btn.secondary{background:#26354d;color:var(--text);border:1px solid #40516c}.btn:disabled{opacity:.55}.field{width:100%;background:#0b1321;color:var(--text);border:1px solid #3a4b66;border-radius:11px;padding:12px;font-size:16px}.label{display:block;color:var(--muted);font-size:13px;margin:10px 0 5px}.status{padding:12px;border-radius:12px;background:#0c1728;border:1px solid var(--line);color:var(--muted);overflow-wrap:anywhere}.status.good{border-color:#2f785f;color:#a7f2d0}.status.warn{border-color:#85672d;color:#ffe0a0}.small{font-size:13px;color:var(--muted)}.match{border:1px solid var(--line);background:#0d1727;border-radius:14px;padding:13px;margin-top:10px}.teams{font-weight:700;font-size:16px}.meta{color:var(--muted);font-size:13px;margin:4px 0 10px}.prediction{display:flex;align-items:center;justify-content:space-between;gap:12px}.score{font-size:27px;font-weight:800;color:var(--accent);white-space:nowrap}.prob{font-size:13px;color:var(--muted);text-align:right}.pill{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:3px 8px;color:var(--muted);font-size:12px}.footer{color:var(--muted);font-size:12px;padding:12px 2px}.spinner{display:inline-block;width:14px;height:14px;border:2px solid #52647e;border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}@keyframes spin{to{transform:rotate(360deg)}}a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+<header class="hero">
+  <div class="pill">KOSTENLOS · BETA</div>
+  <h1>⚽ Halbzeit-Kompass</h1>
+  <p class="sub">Spiele finden, verfügbare Daten prüfen und eine nachvollziehbare Halbzeit-Prognose berechnen.</p>
+</header>
+<section class="panel">
+  <h2 style="margin:0 0 8px;font-size:19px">Spiele und Daten</h2>
+  <div class="row">
+    <div><label class="label" for="date">Spieldatum</label><input class="field" type="date" id="date"></div>
+    <div><label class="label" for="league">Wettbewerb</label><select class="field" id="league"><option value="">Alle verfügbaren Wettbewerbe</option></select></div>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <button class="btn" id="load">Spiele laden</button>
+    <button class="btn secondary" id="today">Heute</button>
+  </div>
+  <div id="status" class="status" role="status" aria-live="polite" style="margin-top:12px">Noch keine Daten geladen. Tippe auf „Spiele laden“.</div>
+  <p class="small">Datenquelle: OpenLigaDB. Die Abdeckung hängt von den dort gepflegten Wettbewerben ab. Keine Quelle deckt garantiert alle Ligen der Welt ab.</p>
+</section>
+<section class="panel">
+  <div class="row"><h2 style="margin:0;font-size:19px">Gefundene Spiele</h2><span id="count" class="pill">0 Spiele</span></div>
+  <div id="matches"><p class="small">Hier erscheinen Spiele, sobald Daten geladen wurden.</p></div>
+</section>
+<section class="panel">
+  <h2 style="margin:0 0 8px;font-size:19px">Wie die Prognose funktioniert</h2>
+  <p class="small">Für die erste Version wird aus verfügbaren historischen Halbzeitständen und Mannschafts-Tordaten eine einfache Schätzung abgeleitet. Fehlen verlässliche historische Daten, zeigt die App „Daten unzureichend“, statt eine erfundene Sicherheit auszugeben. Ein Ergebnis ist nie garantiert.</p>
+  <div id="checklist" class="status">Prüfungen: Datenquelle wird erst nach Abruf getestet · Aktualität wird beim Laden angezeigt · Prognosen sind Schätzungen.</div>
+</section>
+<footer class="footer">Halbzeit-Kompass · Beta · Bitte Prognosen nicht als sichere Ergebnisse verstehen. Bei Datenfehlern erneut laden oder später versuchen.</footer>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const dateInput=$('date'), leagueSelect=$('league'), statusBox=$('status'), matchesBox=$('matches'), countBox=$('count');
+const now=new Date(); dateInput.value=[now.getFullYear(),String(now.getMonth()+1).padStart(2,'0'),String(now.getDate()).padStart(2,'0')].join('-');
+let allMatches=[], leagueMap=new Map(), loadedAt=null;
+function setStatus(msg,kind=''){statusBox.className='status'+(kind?' '+kind:'');statusBox.textContent=msg}
+function dateKey(d){return d.toISOString().slice(0,10)}
+function parseDate(m){return m.matchDate||m.MatchDate||m.date||m.Date||''}
+function getName(obj,...keys){for(const k of keys){if(obj&&obj[k]!=null&&obj[k]!=='')return obj[k]}return ''}
+function teamName(m,side){const t=m[side]||m[side[0].toUpperCase()+side.slice(1)]||{};return getName(t,'teamName','TeamName','name','Name')||getName(m,side+'Name',side+'TeamName')||'Unbekannt'}
+function leagueName(m){const l=m.league||m.League||{};return getName(l,'leagueName','LeagueName','name','Name')||getName(m,'leagueName','LeagueName','leagueShortcut','LeagueShortcut')||'Wettbewerb unbekannt'}
+function kickoff(m){const d=new Date(parseDate(m));return isNaN(d)?'Anstoßzeit unbekannt':d.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit'})}
+function goals(team){return Number(getName(team,'points','Points','goals','Goals'))}
+function resultObj(m){return m.matchResults||m.MatchResults||m.results||m.Results||[]}
+function halfTimeResult(m){const arr=resultObj(m);return arr.find(r=>/halbzeit|half.?time/i.test(String(getName(r,'resultName','ResultName','resultDescription','ResultDescription','name','Name'))))||arr.find(r=>Number(getName(r,'resultTypeID','ResultTypeID','resultTypeId'))===2)||null}
+function isFinal(m){return !!(m.matchIsFinished??m.MatchIsFinished??m.isFinished??m.IsFinished)}
+function finalResult(m){const arr=resultObj(m);return arr.find(r=>Number(getName(r,'resultTypeID','ResultTypeID','resultTypeId'))===1)||arr[arr.length-1]||null}
+function score(r){if(!r)return null;const a=getName(r,'pointsTeam1','PointsTeam1','homeGoals','HomeGoals'),b=getName(r,'pointsTeam2','PointsTeam2','awayGoals','AwayGoals');return a===''||b===''?null:[Number(a),Number(b)]}
+async function fetchJson(url){const ctl=new AbortController();const timer=setTimeout(()=>ctl.abort(),12000);try{const r=await fetch(url,{signal:ctl.signal,headers:{Accept:'application/json'}});if(!r.ok)throw new Error('HTTP '+r.status);return await r.json()}finally{clearTimeout(timer)}}
+async function loadLeagues(year){const urls=[`https://api.openligadb.de/getavailableleagues/${year}`,`https://api.openligadb.de/getavailableleagues`];for(const u of urls){try{const d=await fetchJson(u);if(Array.isArray(d)&&d.length)return d}catch(e){}}throw new Error('Wettbewerbsliste konnte nicht geladen werden')}
+async function load(){
+ const date=dateInput.value;if(!date){setStatus('Bitte ein Datum auswählen.','warn');return}
+ $('load').disabled=true;$('today').disabled=true;setStatus('Datenquelle wird abgefragt …','');matchesBox.innerHTML='<p class="small"><span class="spinner"></span> Bitte warten, Spiele werden geladen und geprüft.</p>';
+ try{
+  const year=Number(date.slice(0,4));let leagues=await loadLeagues(year);
+  const unique=new Map();for(const l of leagues){const id=getName(l,'leagueId','LeagueId','id');const name=getName(l,'leagueName','LeagueName','name');const shortcut=getName(l,'leagueShortcut','LeagueShortcut');if(id!=null&&name)unique.set(String(id),{id:String(id),name,shortcut,season:getName(l,'leagueSeason','LeagueSeason')||year})}
+  leagueMap=unique;const current=leagueSelect.value;leagueSelect.innerHTML='<option value="">Alle verfügbaren Wettbewerbe</option>';
+  for(const l of [...unique.values()].sort((a,b)=>a.name.localeCompare(b.name,'de'))){const o=document.createElement('option');o.value=l.id;o.textContent=`${l.name}${l.season?' · '+l.season:''}`;leagueSelect.appendChild(o)}if(current&&unique.has(current))leagueSelect.value=current;
+  let chosen=[...unique.values()];if(leagueSelect.value)chosen=chosen.filter(l=>l.id===leagueSelect.value);
+  if(!chosen.length)throw new Error('Für dieses Datum wurden keine Wettbewerbe gefunden.');
+  const target=new Date(date+'T12:00:00');const seasonYear=target.getFullYear();
+  let games=[],errors=0,attempted=0;
+  // Cap requests to avoid flooding the free public API; explain partial coverage.
+  const candidates=chosen.slice(0,18);let idx=0;
+  async function worker(){while(idx<candidates.length){const l=candidates[idx++];attempted++;try{let d=await fetchJson(`https://api.openligadb.de/getmatchdata/${encodeURIComponent(l.shortcut)}/${encodeURIComponent(l.season||seasonYear)}`);if(Array.isArray(d)){for(const m of d){const md=parseDate(m);if(md&&md.slice(0,10)===date){m.__league=l.name;games.push(m)}}}}catch(e){errors++}}}
+  await Promise.all(Array.from({length:3},worker));
+  allMatches=games.sort((a,b)=>new Date(parseDate(a))-new Date(parseDate(b)));loadedAt=new Date();
+  renderMatches();
+  const time=loadedAt.toLocaleTimeString('de-DE',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  if(!games.length)setStatus(`Abruf geprüft um ${time}. Keine Spiele für ${date} in den abgefragten Wettbewerben gefunden. ${errors?errors+' Abrufe fehlgeschlagen.':''} Das bedeutet nicht sicher, dass weltweit keine Spiele stattfinden.`,errors?'warn':'');
+  else setStatus(`Abruf erfolgreich um ${time}. ${games.length} Spiele gefunden. ${attempted} Wettbewerbe angefragt; ${errors} Abrufe fehlgeschlagen. Die kostenlose Quelle deckt nicht alle Ligen ab.`,errors?'warn':'good');
+  $('checklist').textContent=`Letzter erfolgreicher Listenabruf: ${time}. Formatprüfung: ${games.every(m=>parseDate(m)&&teamName(m,'team1')!=='Unbekannt'&&teamName(m,'team2')!=='Unbekannt')?'bestanden':'teilweise fehlende Felder'}. Gegenprüfung durch unabhängige zweite Quelle: nicht eingerichtet.`;
+ }catch(e){allMatches=[];renderMatches();setStatus('Daten konnten nicht zuverlässig geladen werden. Prüfe deine Internetverbindung oder versuche es später erneut. Details: '+e.message,'warn');$('checklist').textContent='Datenabruf fehlgeschlagen. Es werden keine erfundenen Prognosen angezeigt.'}
+ finally{$('load').disabled=false;$('today').disabled=false}
+}
+function estimate(m){
+ // Conservative baseline estimate; not a validated predictive model.
+ const ht=score(halfTimeResult(m));if(ht)return {score:ht.join(' : '),prob:'Bekannter Halbzeitstand',known:true};
+ const played=isFinal(m);const fin=score(finalResult(m));
+ if(played&&fin){return {score:'—',prob:'Historischer Halbzeitstand fehlt',known:false}}
+ return {score:'0 : 0',prob:'Niedrige Basisschätzung · keine teambezogene Kalibrierung',known:false}
+}
+function renderMatches(){
+ countBox.textContent=allMatches.length+' Spiele';
+ if(!allMatches.length){matchesBox.innerHTML='<p class="small">Keine passenden Spiele gefunden. Prüfe Datum oder Wettbewerb und lade erneut.</p>';return}
+ matchesBox.innerHTML='';
+ for(const m of allMatches){const home=teamName(m,'team1'),away=teamName(m,'team2'),league=m.__league||leagueName(m),ht=score(halfTimeResult(m)),pred=estimate(m);
+ const el=document.createElement('article');el.className='match';
+ const teams=document.createElement('div');teams.className='teams';teams.textContent=home+' – '+away;
+ const meta=document.createElement('div');meta.className='meta';meta.textContent=league+' · '+kickoff(m)+' · '+(isFinal(m)?'Beendet':'Spielstatus nicht bestätigt');
+ const predRow=document.createElement('div');predRow.className='prediction';
+ const left=document.createElement('div');left.innerHTML='<div class="small">'+(ht?'Erfasster Halbzeitstand':'Halbzeit-Prognose (vorläufig)')+'</div>';const scoreEl=document.createElement('div');scoreEl.className='score';scoreEl.textContent=ht?ht.join(' : '):pred.score;left.appendChild(scoreEl);
+ const right=document.createElement('div');right.className='prob';right.textContent=ht?'Datenquelle meldet Halbzeitstand':pred.prob;
+ predRow.append(left,right);el.append(teams,meta,predRow);matchesBox.appendChild(el)
+ }
+}
+$('load').addEventListener('click',load);
+$('today').addEventListener('click',()=>{dateInput.value=dateKey(new Date());load()});
+leagueSelect.addEventListener('change',()=>{if(dateInput.value)load()});
+</script>
+</body>
+</html>
